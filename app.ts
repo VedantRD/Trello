@@ -1,3 +1,16 @@
+// Drag and Drop Interfaces
+interface Draggable {
+    dragStartHandler(event: DragEvent): void
+    dragEndHandler(event: DragEvent): void
+}
+
+interface DragTarget {
+    dragOverHandler(event: DragEvent): void
+    dropHandler(event: DragEvent): void
+    dragLeaveHandler(event: DragEvent): void
+}
+
+// to set a project active or not
 enum projectStatus { active, finished }
 
 // Each Project Structure
@@ -31,12 +44,24 @@ class ProjectState extends State<Project>{
         super()
     }
 
+    private updateListeners = () => {
+        for (const listenerFn of this.listeners) {
+            listenerFn(this.projects.slice())
+        }
+    }
+
     addProject = (title: string, description: string, people: number) => {
         console.log('inside add project')
         const newProject = new Project(Math.random().toString(), title, description, people, projectStatus.active)
         this.projects.push(newProject)
-        for (const listenerFn of this.listeners) {
-            listenerFn(this.projects.slice())
+        this.updateListeners()
+    }
+
+    changeProjectStatus = (projectId: string, newStatus: projectStatus) => {
+        const project = this.projects.find(prj => prj.id === projectId)
+        if (project && project.status !== newStatus) {
+            project.status = newStatus
+            this.updateListeners()
         }
     }
 }
@@ -82,7 +107,7 @@ abstract class Component<T extends HTMLElement, U extends HTMLElement>{
 }
 
 // Each Item
-class ProjectItem extends Component<HTMLUListElement, HTMLLIElement>{
+class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> implements Draggable {
     private project: Project
 
     get numOfPeople() {
@@ -100,7 +125,18 @@ class ProjectItem extends Component<HTMLUListElement, HTMLLIElement>{
         this.renderContent()
     }
 
-    configure = () => { }
+    dragStartHandler = (event: DragEvent) => {
+        event.dataTransfer!.setData('text/plain', this.project.id)
+        event.dataTransfer!.effectAllowed = 'move'
+    }
+    dragEndHandler = (event: DragEvent) => {
+        console.log('drag end')
+    }
+
+    configure = () => {
+        this.element.addEventListener('dragstart', this.dragStartHandler)
+        this.element.addEventListener('dragend', this.dragEndHandler)
+    }
 
     renderContent = () => {
         this.element.querySelector('h2')!.textContent = this.project.title
@@ -110,7 +146,7 @@ class ProjectItem extends Component<HTMLUListElement, HTMLLIElement>{
 }
 
 // Project List
-class ProjectList extends Component<HTMLDivElement, HTMLElement>{
+class ProjectList extends Component<HTMLDivElement, HTMLElement> implements DragTarget {
     assignedProjects: any[] = []
 
     constructor(private type: 'active' | 'finished') {
@@ -118,6 +154,27 @@ class ProjectList extends Component<HTMLDivElement, HTMLElement>{
 
         this.configure()
         this.renderContent()
+    }
+
+    dragOverHandler = (event: DragEvent) => {
+        if (event.dataTransfer && event.dataTransfer.types[0] === 'text/plain') {
+            event.preventDefault()
+            const listEl = this.element.querySelector('ul')!
+            listEl.classList.add('droppable')
+        }
+    }
+    dropHandler = (event: DragEvent) => {
+        const prjId = event.dataTransfer!.getData('text/plain')
+        projectState.changeProjectStatus(
+            prjId,
+            this.type === 'active' ? projectStatus.active : projectStatus.finished
+        )
+        console.log(prjId)
+    }
+
+    dragLeaveHandler = (event: DragEvent) => {
+        const listEl = this.element.querySelector('ul')!
+        listEl.classList.remove('droppable')
     }
 
     private renderProjects = () => {
@@ -128,6 +185,10 @@ class ProjectList extends Component<HTMLDivElement, HTMLElement>{
         }
     }
     configure = () => {
+        this.element.addEventListener('dragover', this.dragOverHandler)
+        this.element.addEventListener('dragleave', this.dragLeaveHandler)
+        this.element.addEventListener('drop', this.dropHandler)
+
         // add new listener in ProjectState listeners
         projectState.addListener((projects: Project[]) => {
             const relevantProjects = projects.filter(prj => {
